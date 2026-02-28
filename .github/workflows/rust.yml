@@ -12,14 +12,17 @@ env:
 jobs:
   ubuntu-build:
 
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+
+    runs-on: ${{ matrix.os }}
 
     steps:
     - uses: actions/checkout@v3
-    - name: Install llvm 16
-      run: wget https://apt.llvm.org/llvm.sh && chmod +x llvm.sh && sudo ./llvm.sh 16 && rm llvm.sh
-    - name: Install riscv64 target
-      run: rustup target add riscv64imac-unknown-none-elf
+    - name: Install llvm
+      run: sudo apt update && sudo apt install -y clang llvm # This requires Ubuntu 24.04 or later
+    - uses: actions-rust-lang/setup-rust-toolchain@v1
     - name: Install cargo generate
       run: cargo install cargo-generate
     - name: Generate workspace
@@ -30,51 +33,38 @@ jobs:
         make generate CRATE=rlib TEMPLATE=x64-simulator-crate DESTINATION=crates TEMPLATE_TYPE=--path TEMPLATE_REPO=.. &&
         make generate CRATE=c1 TEMPLATE=contract TEMPLATE_TYPE=--path TEMPLATE_REPO=.. &&
         make generate CRATE=c2 TEMPLATE=atomics-contract TEMPLATE_TYPE=--path TEMPLATE_REPO=.. &&
-        make generate CRATE=c3 TEMPLATE=stack-reorder-contract TEMPLATE_TYPE=--path TEMPLATE_REPO=..
+        make generate CRATE=c3 TEMPLATE=stack-reorder-contract TEMPLATE_TYPE=--path TEMPLATE_REPO=.. &&
+        make generate CRATE=c4 TEMPLATE=contract-without-simulator TEMPLATE_TYPE=--path TEMPLATE_REPO=..
     - name: Submodules
       run: cd test-workspace &&
         git submodule add https://github.com/nervosnetwork/ckb-c-stdlib deps/ckb-c-stdlib &&
         git submodule add https://github.com/xxuejie/lib-dummy-atomics deps/lib-dummy-atomics
+    - name: Lock Rust version
+      run: cd test-workspace && echo "1.85.1" > rust-toolchain
+    - name: Install riscv64 target & clippy
+      run: cd test-workspace && rustup target add riscv64imac-unknown-none-elf && rustup component add clippy
     - name: Run all checks
       run: cd test-workspace && make build test check clippy
+    - name: Generate native simulators for coverage
+      if: matrix.os == 'ubuntu-latest'
+      run: cd test-workspace &&
+        make generate-native-simulator CRATE=c1 TEMPLATE_TYPE=--path TEMPLATE_REPO=..
+    - name: Install llvm-tools for coverage
+      if: matrix.os == 'ubuntu-latest'
+      run: cd test-workspace && make coverage-install
+    - name: Run coverage tests
+      if: matrix.os == 'ubuntu-latest'
+      run: cd test-workspace && make coverage
     - name: Reproducible build runs
       run: cd test-workspace && ./scripts/reproducible_build_docker --update && ./scripts/reproducible_build_docker --no-clean
     - name: Generate standalone contract
       run: cargo generate --path . standalone-contract --name test-contract
+    - name: Lock Rust version
+      run: cd test-contract && echo "1.85.1" > rust-toolchain
     - name: Run all checks
       run: cd test-contract && make build test check clippy
     - name: Reproducible build runs
       run: cd test-contract && ./scripts/reproducible_build_docker --update && ./scripts/reproducible_build_docker --no-clean
-
-  ubuntu-arm64-docker-build:
-
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/checkout@v3
-    - name: Setup qemu binfmt
-      run: docker run --privileged --rm tonistiigi/binfmt --install all
-    - name: Install cargo generate
-      run: cargo install cargo-generate
-    - name: Generate workspace
-      run: cargo generate --path . workspace --name test-workspace
-    - name: Generate crates && contracts
-      run: cd test-workspace &&
-        make generate CRATE=clib TEMPLATE=c-wrapper-crate DESTINATION=crates TEMPLATE_TYPE=--path TEMPLATE_REPO=.. &&
-        make generate CRATE=rlib TEMPLATE=x64-simulator-crate DESTINATION=crates TEMPLATE_TYPE=--path TEMPLATE_REPO=.. &&
-        make generate CRATE=c1 TEMPLATE=contract TEMPLATE_TYPE=--path TEMPLATE_REPO=.. &&
-        make generate CRATE=c2 TEMPLATE=atomics-contract TEMPLATE_TYPE=--path TEMPLATE_REPO=.. &&
-        make generate CRATE=c3 TEMPLATE=stack-reorder-contract TEMPLATE_TYPE=--path TEMPLATE_REPO=..
-    - name: Submodules
-      run: cd test-workspace &&
-        git submodule add https://github.com/nervosnetwork/ckb-c-stdlib deps/ckb-c-stdlib &&
-        git submodule add https://github.com/xxuejie/lib-dummy-atomics deps/lib-dummy-atomics
-    - name: Reproducible build runs
-      run: cd test-workspace && export DOCKER_RUN_ARGS="--platform linux/arm64" && ./scripts/reproducible_build_docker --update && ./scripts/reproducible_build_docker --no-clean
-    - name: Generate standalone contract
-      run: cargo generate --path . standalone-contract --name test-contract
-    - name: Reproducible build runs
-      run: cd test-contract && export DOCKER_RUN_ARGS="--platform linux/arm64" && ./scripts/reproducible_build_docker --update && ./scripts/reproducible_build_docker --no-clean
 
   debian-build:
 
@@ -86,9 +76,9 @@ jobs:
 
     steps:
     - name: Install dependencies
-      run: apt-get update && apt-get -y install curl git build-essential pkg-config libssl-dev lsb-release wget software-properties-common gnupg
-    - name: Install llvm 16
-      run: wget https://apt.llvm.org/llvm.sh && chmod +x llvm.sh && ./llvm.sh 16 && rm llvm.sh
+      run: apt-get update && apt-get -y install curl git build-essential pkg-config libssl-dev lsb-release wget gnupg
+    - name: Install llvm 21
+      run: wget https://apt.llvm.org/llvm.sh && chmod +x llvm.sh && ./llvm.sh 21 && rm llvm.sh
     - uses: actions-rust-lang/setup-rust-toolchain@v1
       with:
         components: clippy
@@ -106,7 +96,8 @@ jobs:
         make generate CRATE=rlib TEMPLATE=x64-simulator-crate DESTINATION=crates TEMPLATE_TYPE=--path TEMPLATE_REPO=.. &&
         make generate CRATE=c1 TEMPLATE=contract TEMPLATE_TYPE=--path TEMPLATE_REPO=.. &&
         make generate CRATE=c2 TEMPLATE=atomics-contract TEMPLATE_TYPE=--path TEMPLATE_REPO=.. &&
-        make generate CRATE=c3 TEMPLATE=stack-reorder-contract TEMPLATE_TYPE=--path TEMPLATE_REPO=..
+        make generate CRATE=c3 TEMPLATE=stack-reorder-contract TEMPLATE_TYPE=--path TEMPLATE_REPO=.. &&
+        make generate CRATE=c4 TEMPLATE=contract-without-simulator TEMPLATE_TYPE=--path TEMPLATE_REPO=..
     - name: Submodules
       run: cd test-workspace &&
         git submodule add https://github.com/nervosnetwork/ckb-c-stdlib deps/ckb-c-stdlib &&
@@ -146,7 +137,8 @@ jobs:
         make generate CRATE=rlib TEMPLATE=x64-simulator-crate DESTINATION=crates TEMPLATE_TYPE=--path TEMPLATE_REPO=.. &&
         make generate CRATE=c1 TEMPLATE=contract TEMPLATE_TYPE=--path TEMPLATE_REPO=.. &&
         make generate CRATE=c2 TEMPLATE=atomics-contract TEMPLATE_TYPE=--path TEMPLATE_REPO=.. &&
-        make generate CRATE=c3 TEMPLATE=stack-reorder-contract TEMPLATE_TYPE=--path TEMPLATE_REPO=..
+        make generate CRATE=c3 TEMPLATE=stack-reorder-contract TEMPLATE_TYPE=--path TEMPLATE_REPO=.. &&
+        make generate CRATE=c4 TEMPLATE=contract-without-simulator TEMPLATE_TYPE=--path TEMPLATE_REPO=..
     - name: Submodules
       run: cd test-workspace &&
         git submodule add https://github.com/nervosnetwork/ckb-c-stdlib deps/ckb-c-stdlib &&
@@ -186,7 +178,8 @@ jobs:
         make generate CRATE=rlib TEMPLATE=x64-simulator-crate DESTINATION=crates TEMPLATE_TYPE=--path TEMPLATE_REPO=.. &&
         make generate CRATE=c1 TEMPLATE=contract TEMPLATE_TYPE=--path TEMPLATE_REPO=.. &&
         make generate CRATE=c2 TEMPLATE=atomics-contract TEMPLATE_TYPE=--path TEMPLATE_REPO=.. &&
-        make generate CRATE=c3 TEMPLATE=stack-reorder-contract TEMPLATE_TYPE=--path TEMPLATE_REPO=..
+        make generate CRATE=c3 TEMPLATE=stack-reorder-contract TEMPLATE_TYPE=--path TEMPLATE_REPO=.. &&
+        make generate CRATE=c4 TEMPLATE=contract-without-simulator TEMPLATE_TYPE=--path TEMPLATE_REPO=..
     - name: Submodules
       run: cd test-workspace &&
         git submodule add https://github.com/nervosnetwork/ckb-c-stdlib deps/ckb-c-stdlib &&
@@ -206,8 +199,8 @@ jobs:
     - uses: actions/checkout@v3
       with:
         submodules: true
-    - name: Install llvm 16
-      run: brew install llvm@16
+    - name: Install llvm 19
+      run: brew install llvm@19
     - name: Install riscv64 target
       run: rustup target add riscv64imac-unknown-none-elf
     - name: Install cargo generate
@@ -220,7 +213,8 @@ jobs:
         make generate CRATE=rlib TEMPLATE=x64-simulator-crate DESTINATION=crates TEMPLATE_TYPE=--path TEMPLATE_REPO=.. &&
         make generate CRATE=c1 TEMPLATE=contract TEMPLATE_TYPE=--path TEMPLATE_REPO=.. &&
         make generate CRATE=c2 TEMPLATE=atomics-contract TEMPLATE_TYPE=--path TEMPLATE_REPO=.. &&
-        make generate CRATE=c3 TEMPLATE=stack-reorder-contract TEMPLATE_TYPE=--path TEMPLATE_REPO=..
+        make generate CRATE=c3 TEMPLATE=stack-reorder-contract TEMPLATE_TYPE=--path TEMPLATE_REPO=.. &&
+        make generate CRATE=c4 TEMPLATE=contract-without-simulator TEMPLATE_TYPE=--path TEMPLATE_REPO=..
     - name: Submodules
       run: cd test-workspace &&
         git submodule add https://github.com/nervosnetwork/ckb-c-stdlib deps/ckb-c-stdlib &&
@@ -232,53 +226,9 @@ jobs:
     - name: Run all checks
       run: cd test-contract && make build test check clippy
 
-  # For now, github action's latest arm64-based macos runner does not support docker. We will have to
-  # Use an order version for now to test reproducible build on macOS. Maybe when macOS 15 is out we can
-  # re-test later.
-  #
-  # References:
-  # * https://github.com/orgs/community/discussions/69211
-  # * https://github.com/marketplace/actions/setup-docker-on-macos
-  # NOTE: this test is not stable right now, disabling it till we can find a better solution
-#   macos-x64-reproducible-build:
-# 
-#     runs-on: macos-13
-# 
-#     steps:
-#     - uses: actions/checkout@v3
-#       with:
-#         submodules: true
-#     - name: Setup Docker on macOS
-#       run: brew install docker colima && colima start
-#     - name: Install llvm 16
-#       run: brew install llvm@16
-#     - name: Install riscv64 target
-#       run: rustup target add riscv64imac-unknown-none-elf
-#     - name: Install cargo generate
-#       run: cargo install cargo-generate
-#     - name: Generate workspace
-#       run: cargo generate --path . workspace --name test-workspace
-#     - name: Generate crates && contracts
-#       run: cd test-workspace &&
-#         make generate CRATE=clib TEMPLATE=c-wrapper-crate DESTINATION=crates TEMPLATE_TYPE=--path TEMPLATE_REPO=.. &&
-#         make generate CRATE=rlib TEMPLATE=x64-simulator-crate DESTINATION=crates TEMPLATE_TYPE=--path TEMPLATE_REPO=.. &&
-#         make generate CRATE=c1 TEMPLATE=contract TEMPLATE_TYPE=--path TEMPLATE_REPO=.. &&
-#         make generate CRATE=c2 TEMPLATE=atomics-contract TEMPLATE_TYPE=--path TEMPLATE_REPO=.. &&
-#         make generate CRATE=c3 TEMPLATE=stack-reorder-contract TEMPLATE_TYPE=--path TEMPLATE_REPO=..
-#     - name: Submodules
-#       run: cd test-workspace &&
-#         git submodule add https://github.com/nervosnetwork/ckb-c-stdlib deps/ckb-c-stdlib &&
-#         git submodule add https://github.com/xxuejie/lib-dummy-atomics deps/lib-dummy-atomics
-#     - name: Reproducible build runs
-#       run: cd test-workspace && ./scripts/reproducible_build_docker --update && ./scripts/reproducible_build_docker --no-clean
-#     - name: Generate standalone contract
-#       run: cargo generate --path . standalone-contract --name test-contract
-#     - name: Reproducible build runs
-#       run: cd test-contract && ./scripts/reproducible_build_docker --update && ./scripts/reproducible_build_docker --no-clean
-
   windows-build:
 
-    runs-on: windows-2019
+    runs-on: windows-2022
 
     steps:
     - uses: actions/checkout@v3
@@ -288,7 +238,7 @@ jobs:
       shell: pwsh
       # https://github.com/ScoopInstaller/Install#for-admin
       #
-      # Note that on Windows we cannot choose LLVM 16 here, we have to settle on latest stable LLVM
+      # Note that on Windows we cannot choose LLVM 19 here, we have to settle on latest stable LLVM
       run: |
         iex "& {$(irm get.scoop.sh)} -RunAsAdmin"
         scoop install llvm yasm
@@ -305,7 +255,8 @@ jobs:
         make generate CRATE=rlib TEMPLATE=x64-simulator-crate DESTINATION=crates TEMPLATE_TYPE=--path TEMPLATE_REPO=.. &&
         make generate CRATE=c1 TEMPLATE=contract TEMPLATE_TYPE=--path TEMPLATE_REPO=.. &&
         make generate CRATE=c2 TEMPLATE=atomics-contract TEMPLATE_TYPE=--path TEMPLATE_REPO=.. &&
-        make generate CRATE=c3 TEMPLATE=stack-reorder-contract TEMPLATE_TYPE=--path TEMPLATE_REPO=..
+        make generate CRATE=c3 TEMPLATE=stack-reorder-contract TEMPLATE_TYPE=--path TEMPLATE_REPO=.. &&
+        make generate CRATE=c4 TEMPLATE=contract-without-simulator TEMPLATE_TYPE=--path TEMPLATE_REPO=..
     - name: Submodules
       run: cd test-workspace &&
         git submodule add https://github.com/nervosnetwork/ckb-c-stdlib deps/ckb-c-stdlib &&
@@ -331,17 +282,18 @@ jobs:
         usesh: true
         prepare: |
           set -ex
-          pkg install -y llvm16 git gmake bash
+          pkg install -y llvm19 git gmake bash
           curl https://sh.rustup.rs -sSf | sh -s -- -y
           . $HOME/.cargo/env
           rustup target add riscv64imac-unknown-none-elf
           cargo install cargo-generate
         run: |
           set -ex
-          . $HOME/.cargo/env      
+          . $HOME/.cargo/env
           cargo generate --path . standalone-contract --name test-contract
           cd test-contract
           gmake build test check clippy
+          cargo clean
           cd ..
           cargo generate --path . workspace --name test-workspace
           cd test-workspace
@@ -350,6 +302,7 @@ jobs:
           gmake generate CRATE=c1 TEMPLATE=contract TEMPLATE_TYPE=--path TEMPLATE_REPO=..
           gmake generate CRATE=c2 TEMPLATE=atomics-contract TEMPLATE_TYPE=--path TEMPLATE_REPO=..
           gmake generate CRATE=c3 TEMPLATE=stack-reorder-contract TEMPLATE_TYPE=--path TEMPLATE_REPO=..
+          gmake generate CRATE=c4 TEMPLATE=contract-without-simulator TEMPLATE_TYPE=--path TEMPLATE_REPO=..
           git submodule add https://github.com/nervosnetwork/ckb-c-stdlib deps/ckb-c-stdlib
           git submodule add https://github.com/xxuejie/lib-dummy-atomics deps/lib-dummy-atomics
           gmake build test check clippy

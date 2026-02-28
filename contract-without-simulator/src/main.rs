@@ -1,12 +1,11 @@
-#![cfg_attr(not(any(feature = "library", test)), no_std)]
+#![cfg_attr(not(test), no_std)]
 #![cfg_attr(not(test), no_main)]
 
-#[cfg(any(feature = "library", test))]
+#[cfg(test)]
 extern crate alloc;
 
-#[cfg(not(any(feature = "library", test)))]
+#[cfg(not(test))]
 ckb_std::entry!(program_entry);
-#[cfg(not(any(feature = "library", test)))]
 // By default, the following heap configuration is used:
 // * 16KB fixed heap
 // * 1.2MB(rounded up to be 16-byte aligned) dynamic heap

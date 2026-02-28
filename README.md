@@ -19,13 +19,13 @@ This repository keeps a series of CKB script templates that can be inflated via 
 
 The following dependencies are required for the templates:
 
-* `git`, `make`, `sed`, `bash`, `sha256sum` and others Unix utilities. Refer to the documentation for your operating systems for how to install them. Chances are your system might already have them.
+* `git`, `make`, `sed`, `bash`, `shasum` and others Unix utilities. Refer to the documentation for your operating systems for how to install them. Chances are your system might already have them.
 * `Rust`: latest stable Rust installed via [rustup](https://rustup.rs/) should work. Make sure you have `riscv64` target installed via: `rustup target add riscv64imac-unknown-none-elf`
-* `Clang`: make sure you have clang 16+ installed, sample installtion steps for selected platforms are:
-    + Debian / Ubuntu: `wget https://apt.llvm.org/llvm.sh && chmod +x llvm.sh && sudo ./llvm.sh 16 && rm llvm.sh`
+* `Clang`: make sure you have clang 18+ installed, sample installation steps for selected platforms are:
+    + Debian / Ubuntu: `wget https://apt.llvm.org/llvm.sh && chmod +x llvm.sh && sudo ./llvm.sh 18 && rm llvm.sh`
     + Fedora 39+: `sudo dnf -y install clang`
     + Archlinux: `sudo pacman --noconfirm -Syu clang`
-    + macOS: `brew install llvm@16`
+    + macOS: `brew install llvm@18`
     + Windows(with [Scoop](scoop install llvm yasm)): `scoop install llvm yasm`
 * `cargo-generate`: You can install this via `cargo install cargo-generate`, or follow the steps [here](https://cargo-generate.github.io/cargo-generate/installation.html)
 
@@ -144,10 +144,10 @@ $ make generate TEMPLATE=c-wrapper-crate DESTINATION=crates    # generate a crat
 
 Ready-to-use templates have been put together for different use cases:
 
-* `contract`: default contract template you should use if no special requirements are neeeded.
+* `contract`: default contract template you should use if no special requirements are needed.
 * `stack-reorder-contract`: a contract template that adjusts memory layout so stack lives at lower address, and heap lives at higher address. This way a program would explicitly signal errors when stack space is fully use.
 * `c-wrapper-crate`: a crate template that shows how to glue C code in a Rust crate for CKB's contract usage.
-* `x64-simulator-crate`: a crate template that contains Rust-only code, but usees [ckb-x64-simulator](https://github.com/nervosnetwork/ckb-x64-simulator) for tests.
+* `x64-simulator-crate`: a crate template that contains Rust-only code, but uses [ckb-x64-simulator](https://github.com/nervosnetwork/ckb-x64-simulator) for tests.
 
 There are also deprecated templates kept for historical reasons.
 
@@ -238,3 +238,64 @@ $ make clippy
 The template is tailored built for usage outside of workspace, typically, it is not expected to be used inside a workspace. Feel free to compare it with the default `contract` workspace for differences.
 
 This standalone template also has its own test setup, where in a workspace, a dedicated `tests` crate will handle most of the testing work.
+
+### Native Simulator debug
+
+The `generate-native-simulator` command in the `Makefile` generates a native simulator. It **requires** the `CRATE` parameter to specify an existing subproject. If the parameter is missing or invalid, the command will fail.
+
+```bash
+make generate-native-simulator CRATE=<subproject_name>
+```
+
+To generate a simulator for the `example_crate` subproject:
+
+```bash
+make generate-native-simulator CRATE=example_crate
+```
+
+- The `CRATE` parameter must refer to a subproject.
+- Missing subprojects will cause the command to fail.
+
+### Code Coverage
+
+The templates include built-in support for code coverage reporting using LLVM's coverage tools.
+
+**Requirements:**
+- Only contracts created with the `contract` template support coverage (pure Rust contracts with `native-simulator` feature)
+- Other templates (`atomics-contract`, `stack-reorder-contract`, `contract-without-simulator`, `standalone-contract`) do not support coverage
+- Native simulators must be generated for each contract you want coverage for
+- Only works on x86_64 Linux (not ARM)
+
+**Setup:**
+
+1. Install llvm-tools:
+```bash
+make coverage-install
+```
+
+2. Generate native simulators for your contracts:
+```bash
+make generate-native-simulator CRATE=<contract_name>
+```
+
+**Generate Reports:**
+```bash
+make coverage        # Text report to console
+make coverage-html   # HTML report in target/coverage/html/
+make coverage-lcov   # LCOV format for CI integration
+```
+
+**Example:**
+```bash
+# Create a contract using the default 'contract' template
+make generate CRATE=my-contract
+
+# Generate native simulator for it
+make generate-native-simulator CRATE=my-contract
+
+# Install tools and run coverage
+make coverage-install
+make coverage
+```
+
+Coverage works by running tests with the `native-simulator` feature, which executes contract code natively on x86_64 instead of in CKB-VM. This allows LLVM's coverage instrumentation to track which lines of code are executed.
